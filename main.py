@@ -1,49 +1,74 @@
 import os
-import sys
-import signal
 import logging
-import json
-import io
-import time
-import httpx
-from google import genai
-from PIL import Image
+import google.generativeai as genai
+
 from telegram import Update
 from telegram.ext import (
-    Application,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
 )
 
-# ─── Logging ─────────────────────────────────────────────────────────────────
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-logger = logging.getLogger(__name__)
 
-# ─── Gemini client ────────────────────────────────────────────────────────────
+TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-# Disable thinking mode — not needed for JSON extraction, makes responses faster
-_FAST_CONFIG = genai.types.GenerateContentConfig(
-    thinking_config=genai.types.ThinkingConfig(thinking_budget=0)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "سڵاو 👋\n"
+        "پرسیار یان وێنە بنێرە بۆ گۆڕینی بۆ Quiz."
+    )
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    try:
+        await update.message.reply_text("⏳ Processing...")
+
+        prompt = f"""
+Convert this into a multiple-choice quiz.
+
+{text}
+
+Format:
+Question:
+A)
+B)
+C)
+D)
+Correct answer:
+"""
+
+        response = model.generate_content(prompt)
+
+        await update.message.reply_text(response.text)
+
+    except Exception as e:
+        await update.message.reply_text(str(e))
+
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+
+app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_message
+    )
 )
 
-MODEL = "gemini-2.5-flash"
+print("Bot started...")
 
-# ─── Singleton guard ──────────────────────────────────────────────────────────
-
-PID_FILE = "/tmp/quiz_bot.pid"
-
-
-def enforce_singleton() -> None:
-    if os.path.exists(PID_FILE):
-        try:
-            with open(PID_FILE) as f:
-                old_pid = int(f.read().strip())
-
+app.run_polling()
